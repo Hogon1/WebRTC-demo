@@ -4,12 +4,12 @@
 
 ## 改造说明
 
-本项目是在 [https://github.com/shushushv/webrtc-p2p](https://github.com/shushushv/webrtc-p2p) 的基础上进行改造和完善的，主要目的是为了解决在**跨 Windows 笔记本（非 `localhost` 环境）**下，由于浏览器安全上下文限制导致摄像头/麦克风无法调用的问题，并通过配置 HTTPS 和 WSS 来实现安全通信。同时，也完善了 ICE 候选者的处理逻辑，提升了连接的稳定性。
+本项目是在 [https://github.com/shushushv/webrtc-p2p](https://github.com/shushushv/webrtc-p2p) 的基础上进行改造和完善的，主要目的是为了解决在非 `localhost` 下，由于浏览器安全上下文限制导致摄像头/麦克风无法调用的问题，并通过配置 HTTPS 和 WSS 来实现安全通信。同时，也完善了 ICE 候选者的处理逻辑，提升了连接的稳定性。
 
 ## 主要技术
 
--   **WebRTC** (Web Real-Time Communication)：网页即时通信，允许浏览器之间进行点对点（Peer-to-Peer）的音视频流或其他数据的直接传输，无需中介服务器中转媒体流。
--   **WebSocket**：一种在单个 TCP 连接上进行全双工通信的协议。在本示例中，WebSocket 充当信令服务器的角色，用于在通信双方之间交换信令消息（SDP 和 ICE 候选者），以建立 WebRTC 连接。
+- **WebRTC** (Web Real-Time Communication)：网页即时通信，允许浏览器之间进行点对点（Peer-to-Peer）的音视频流或其他数据的直接传输，无需中介服务器中转媒体流。
+- **WebSocket**：一种在单个 TCP 连接上进行全双工通信的协议。在本示例中，WebSocket 充当信令服务器的角色，用于在通信双方之间交换信令消息（SDP 和 ICE 候选者），以建立 WebRTC 连接。
 
 ## 通话建立流程
 
@@ -28,7 +28,7 @@ WebRTC 通话的建立需要一个信令服务器来协调通信双方。基本�
 
 ### 前提条件
 
--   **Node.js**: 请在两台 Windows 笔记本电脑上都安装 Node.js (推荐 LTS 版本)。
+-   **Node.js**: 仅在作为**信令服务器**的 Windows 笔记本电脑上安装 Node.js (推荐 LTS 版本)。
 -   **OpenSSL**: 在作为**服务器**的笔记本电脑上安装 OpenSSL 工具，用于生成 SSL 证书。
 
 ### 1. 克隆项目与安装依赖
@@ -53,7 +53,7 @@ npm install
 openssl genrsa -out key.pem 2048
 
 # 生成证书签名请求 (csr.pem)
-# 提示输入信息时，除了 Common Name (e.g. server FQDN or YOUR name) 
+# 提示输入信息时，除了 Common Name (e.g. server FQDN or YOUR name)
 # 请输入你的服务器 IP 地址 (例如 192.168.1.8)，其他可直接回车跳过。
 openssl req -new -key key.pem -out csr.pem
 
@@ -67,11 +67,11 @@ openssl x509 -req -days 365 -in csr.pem -signkey key.pem -out cert.pem
 
 为了支持 HTTPS 和 WSS，`index.js` 文件已进行改造。你需要确保 `index.js` 文件内容与项目仓库中的最新版本一致，它包含了：
 
--   引入 `fs` 和 `https` 模块。
--   读取 `key.pem` 和 `cert.pem` 文件。
--   使用 `https.createServer` 创建 HTTPS 服务器。
--   将 `express-ws` 正确绑定到 HTTPS 服务器实例。
--   服务器监听 `8443` 端口 (HTTPS 默认端口)。
+- 引入 `fs` 和 `https` 模块。
+- 读取 `key.pem` 和 `cert.pem` 文件。
+- 使用 `https.createServer` 创建 HTTPS 服务器。
+- 将 `express-ws` 正确绑定到 HTTPS 服务器实例。
+- 服务器监听 `8443` 端口 (HTTPS 默认端口)。
 
 **确认你的 `index.js` 文件顶部包含以下代码，并且 `app.listen` 已被 `server.listen` 替换为 `8443` 端口：**
 
@@ -123,8 +123,8 @@ npm run dev
 
 在两台笔记本电脑上，打开你常用的 Web 浏览器（推荐 Chrome 或 Firefox），并访问以下 URL：
 
--   **发起方**: `https://[服务器IP]:8443/p2p?type=offer`
--   **接收方**: `https://[服务器IP]:8443/p2p?type=answer`
+- **发起方**: `https://[服务器IP]:8443/p2p?type=offer`
+- **接收方**: `https://[服务器IP]:8443/p2p?type=answer`
 
 **请注意：**
 由于使用的是自签名证书，浏览器会显示**安全警告**（例如“您的连接不是私密连接”）。这是正常的，你需要点击“高级”或“继续访问”等选项来接受风险并访问页面。
