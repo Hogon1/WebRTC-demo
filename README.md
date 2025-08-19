@@ -1,139 +1,140 @@
-```
-npm install                 // 安装依赖
+# WebRTC P2P 视频通话示例 (改造版)
 
-npm run dev                 // 访问 localhost:8080
-```
+这是一个基于 WebRTC 和 WebSocket 实现的 P2P 视频通话示例项目。
 
-# 50行代码完成视频通话 (WebRTC + WebSocket)
-## 前言
->*“它（WebRTC）允许网络应用或者站点，在不借助中间媒介的情况下，建立浏览器之间点对点（Peer-to-Peer）的连接，实现视频流和（或）音频流或者其他任意数据的传输”*。
+## 改造说明
 
-这是 MDN 上对 WebRTC 的描述，初次接触时无法理解 WebRTC 为什么要和 WebSocket 搭配，明明说的很清楚 **不借助中间媒介** ，那 WebSocket 充当的是什么角色？整个 WebRTC 通话建立的流程又是怎样的？
+本项目是在 [https://github.com/shushushv/webrtc-p2p](https://github.com/shushushv/webrtc-p2p) 的基础上进行改造和完善的，主要目的是为了解决在**跨 Windows 笔记本（非 `localhost` 环境）**下，由于浏览器安全上下文限制导致摄像头/麦克风无法调用的问题，并通过配置 HTTPS 和 WSS 来实现安全通信。同时，也完善了 ICE 候选者的处理逻辑，提升了连接的稳定性。
 
-## 开始
+## 主要技术
 
-**先看一下最终效果**：
+-   **WebRTC** (Web Real-Time Communication)：网页即时通信，允许浏览器之间进行点对点（Peer-to-Peer）的音视频流或其他数据的直接传输，无需中介服务器中转媒体流。
+-   **WebSocket**：一种在单个 TCP 连接上进行全双工通信的协议。在本示例中，WebSocket 充当信令服务器的角色，用于在通信双方之间交换信令消息（SDP 和 ICE 候选者），以建立 WebRTC 连接。
 
-![](./docs/images/1.gif)
+## 通话建立流程
 
-### 1.相关技术
+WebRTC 通话的建立需要一个信令服务器来协调通信双方。基本流程如下：
 
-本示例主要使用了 `WebRTC` 和 `WebSocket`：
-- `WebRTC`（Web Real-Time Communication）即网页即时通信，是一个支持网页浏览器进行实时语音对话或视频对话的API。
-- `WebSocket`是一种在单个TCP连接上进行全双工通信的协议。在 WebSocket 中，浏览器和服务器只需要完成一次握手，两者之间就直接可以创建持久性的连接，并进行双向数据传输。
+1.  **连接信令服务器**：通信双方（浏览器 A 和 B）都连接到信令服务器（WebSocket）。
+2.  **创建 Offer SDP**：发起方 A 创建本地媒体流（摄像头/麦克风），生成一个 `Offer SDP`（会话描述协议）包含音视频能力等信息。
+3.  **发送 Offer SDP**：发起方 A 将 `Offer SDP` 通过信令服务器发送给接收方 B。
+4.  **创建 Answer SDP**：接收方 B 收到 `Offer SDP` 后，创建本地媒体流，并生成一个 `Answer SDP` 作为响应，包含其音视频能力。
+5.  **发送 Answer SDP**：接收方 B 将 `Answer SDP` 通过信令服务器发送给发起方 A。
+6.  **ICE 候选者交换**：A 和 B 开始收集 ICE 候选者（网络连接信息），并通过信令服务器互相交换这些信息，用于“打洞”以穿透防火墙和 NAT。
+7.  **建立媒体连接**：在 SDP 和 ICE 候选者交换完成后，A 和 B 之间将尝试建立直接的 P2P 媒体连接。
+8.  **开始音视频通话**：连接建立成功后，A 和 B 可以直接进行音视频通话。
 
-### 2.通话建立流程
-简单说一下流程，如浏览器 A 想和浏览器 B 进行音视频通话：
+## 项目运行
 
- 1. A、B 都连接信令服务器（ws）；
- 2. A 创建本地视频，并获取会话描述对象（`offer sdp`）信息；
- 3. A 将 `offer sdp` 通过 ws 发送给 B；
- 4. B 收到信令后，B 创建本地视频，并获取会话描述对象（`answer sdp`）信息；
- 5. B 将 `answer sdp` 通过 ws 发送给 A；
- 6. A 和 B 开始打洞，收集并通过 ws 交换 ice 信息；
- 7. 完成打洞后，A 和 B 开始为安全的媒体通信协商秘钥；
- 8. 至此， A 和 B 可以进行音视频通话。
+### 前提条件
 
-引用网上的有关`WebRTC`建立的时序图，可能更加直观：
+-   **Node.js**: 请在两台 Windows 笔记本电脑上都安装 Node.js (推荐 LTS 版本)。
+-   **OpenSSL**: 在作为**服务器**的笔记本电脑上安装 OpenSSL 工具，用于生成 SSL 证书。
 
-![](./docs/images/2.png)
+### 1. 克隆项目与安装依赖
 
-从上述流程，可以发现**通信双方在建立连接前需要交换信息**，这也就是开头提到的 `WebSocket` 充当的角色：信令服务器，用于转发信息。而 WebRTC **不借助中间媒介** 的意思是，在建立对等连接后，不需要借助第三方服务器中转，而是直接在两个实体（浏览器）间进行传输。
-### 3.代码
+在两台 Windows 笔记本电脑上，执行以下步骤：
 
-#### 第一步
-获取视频标签，连接信令服务器，创建 `RTCPeerConnection` 对象。其中 [RTCPeerConnection]('https://developer.mozilla.org/zh-CN/docs/Web/API/RTCPeerConnection') 的作用是在两个对等端之间建立连接，其构造函数支持传一个配置对象，包含ICE“打洞”（由于本示例在本机进行测试，故不需要）。
+```bash
+# 克隆项目
+git clone https://github.com/Hogon1/WebRTC-demo.git
+cd webrtc-p2p
 
-```
-const localVideo = document.querySelector('#local-video');
-const remoteVideo = document.querySelector('#remote-video');
-const socket = new WebSocket('ws://localhost:8080');
-const peer = new RTCPeerConnection();
-
-socket.onmessage = () => { // todo }
-peer.ontrack = () => { // todo }
-peer.onicecandidate = () => { // todo }
+# 安装依赖
+npm install
 ```
 
-#### 第二步
-获取本地摄像头/麦克风（需要允许使用权限），拿到本地媒体流（[MediaStream](https://developer.mozilla.org/zh-CN/docs/Web/API/MediaStream)）后，需要将其中所有媒体轨道（[MediaStreamTrack](https://developer.mozilla.org/zh-CN/docs/Web/API/MediaStreamTrack)）添加到轨道集，这些轨道将被发送到另一对等方。
+### 2. 配置 SSL 证书 (仅在作为服务器的笔记本上执行)
 
-```
-navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-	.then(stream => {
-		localVideo.srcObject = stream;
-		stream.getTracks().forEach(track => {
-			peer.addTrack(track, stream);
-		});
-	});
+在作为**服务器**的笔记本电脑上 (例如 IP: `192.168.1.8`)，进入项目根目录，在命令行中依次运行以下命令来生成自签名 SSL 证书：
+
+```bash
+# 生成 RSA 私钥 (key.pem)
+openssl genrsa -out key.pem 2048
+
+# 生成证书签名请求 (csr.pem)
+# 提示输入信息时，除了 Common Name (e.g. server FQDN or YOUR name) 
+# 请输入你的服务器 IP 地址 (例如 192.168.1.8)，其他可直接回车跳过。
+openssl req -new -key key.pem -out csr.pem
+
+# 生成自签名证书 (cert.pem)，有效期 365 天
+openssl x509 -req -days 365 -in csr.pem -signkey key.pem -out cert.pem
 ```
 
-#### 第三步
-创建发起方会话描述对象（[createOffer](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/createOffer)），设置本地SDP（[setLocalDescription](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/setLocalDescription)），并通过信令服务器发送到对等端，以启动与远程对等端的新WebRTC连接。
+执行成功后，项目根目录会生成 `key.pem`、`cert.pem` 和 `csr.pem` 文件。
 
-```
-peer.createOffer().then(offer => {
-	peer.setLocalDescription(offer);
-	socket.send(JSON.stringify(offer));
+### 3. 修改服务器配置 (`index.js`)
+
+为了支持 HTTPS 和 WSS，`index.js` 文件已进行改造。你需要确保 `index.js` 文件内容与项目仓库中的最新版本一致，它包含了：
+
+-   引入 `fs` 和 `https` 模块。
+-   读取 `key.pem` 和 `cert.pem` 文件。
+-   使用 `https.createServer` 创建 HTTPS 服务器。
+-   将 `express-ws` 正确绑定到 HTTPS 服务器实例。
+-   服务器监听 `8443` 端口 (HTTPS 默认端口)。
+
+**确认你的 `index.js` 文件顶部包含以下代码，并且 `app.listen` 已被 `server.listen` 替换为 `8443` 端口：**
+
+```javascript
+const app = require("express")();
+const fs = require("fs");
+const https = require("https");
+
+const options = {
+  key: fs.readFileSync("key.pem"),
+  cert: fs.readFileSync("cert.pem"),
+};
+
+const server = https.createServer(options, app);
+const wsInstance = require("express-ws")(app, server);
+
+// ... （中间代码）
+
+server.listen(8443, "0.0.0.0", () => {
+  console.log("HTTPS server listening on port 8443");
 });
 ```
 
-*当调用 setLocalDescription 方法，PeerConnection 开始收集候选人（ice信息），并发送**offer_ice**到对等方。这边补充第一步中的`peer.onicecandidate`和`socket.onmessage`*
+### 4. 修改客户端连接地址 (`client/p2p.html`)
 
-*对等方收到ice信息后，通过调用 [addIceCandidate](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addIceCandidate) 将接收的候选者信息传递给浏览器的ICE代理。*
+在两台 Windows 笔记本电脑上，打开 `client/p2p.html` 文件，将其中的 WebSocket 连接地址修改为指向**服务器笔记本的 HTTPS IP 地址和端口**。
 
-```
-peer.onicecandidate = e => {
-	if (e.candidate) {
-		socket.send(JSON.stringify({
-			type: 'offer_ice',
-			iceCandidate: e.candidate
-		}));
-	} 
-};
+**找到以下行 (大约在第 119 行)：**
 
-socket.onmessage = e => {
-	const { type, sdp, iceCandidate } = JSON.parse(e.data);
-	if (type === 'offer_ice') {
-		peer.addIceCandidate(iceCandidate);
-	}
-}
+```javascript
+const socket = new WebSocket("wss://192.168.1.8:8443"); // 将 192.168.1.8 替换为你的服务器实际 IP
 ```
 
-#### 第四步
-接收方收到了`offer`信令后，开始获取摄像头/麦克风，与发起方操作一致。同时将收到`offer SDP`指定为连接的远程对等方属性（[setRemoteDescription](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/setRemoteDescription)），并创建应答SDP（[createAnswer](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/createAnswer)），发送到对等端。这边补充第一步中的`socket.onmessage`。
+确保 `192.168.1.8` 是你作为服务器的笔记本的实际 IP 地址，并且协议是 `wss`，端口是 `8443`。
 
+### 5. 启动项目
+
+#### a. 启动信令服务器 (仅在作为服务器的笔记本上执行)
+
+在作为**服务器**的笔记本电脑上，进入项目根目录，运行：
+
+```bash
+npm run dev
 ```
-socket.onmessage = e => {
-	const { type, sdp, iceCandidate } = JSON.parse(e.data);
-	if (type === 'offer') {
-		navigator.mediaDevices.getUserMedia();		// 与发起方一致，省略
-		const offerSdp = new RTCSessionDescription({ type, sdp });
-		peer.setRemoteDescription(offerSdp).then(() => {
-			peer.createAnswer(answer => {
-				socket.send(JSON.stringify(answer));
-				peer.setLocalDescription(answer)
-			});
-		});
-	}
-}
-```
-*注意：当 setLocalDescription 方法调用后，开始收集候选人信息，并发送 **answer_ice** 到对等方。与发送方同理，不赘述。*
 
-#### 第五步
-通过不断收集ICE信息（[onicecandidate](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/onicecandidate)），发起方和应答方最终将建立一条最优的连接方式，此时会触发 [ontrack](https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/ontrack) 回调，即可获取到对等方的媒体流。
+你会在控制台看到 `HTTPS server listening on port 8443` 的输出。
 
-```
-peer.ontrack = e => {
-	if (e && e.streams) {
-		remoteVideo.srcObject = e.streams[0];
-	}
-};
-```
-### 4.最后
+#### b. 访问客户端页面 (在两台笔记本上执行)
 
-整合发起方和应答方的代码，差不多50行，不算标题党！哈哈哈哈哈哈...
+在两台笔记本电脑上，打开你常用的 Web 浏览器（推荐 Chrome 或 Firefox），并访问以下 URL：
 
-![](./docs/images/3.png)
+-   **发起方**: `https://[服务器IP]:8443/p2p?type=offer`
+-   **接收方**: `https://[服务器IP]:8443/p2p?type=answer`
 
-完整示例相关代码已上传 [github.com/shushushv/webrtc-p2p](https://github.com/shushushv/webrtc-p2p) ，⭐🦆~
+**请注意：**
+由于使用的是自签名证书，浏览器会显示**安全警告**（例如“您的连接不是私密连接”）。这是正常的，你需要点击“高级”或“继续访问”等选项来接受风险并访问页面。
+
+### 6. 开始视频通话
+
+在两台电脑的浏览器页面都加载完成后：
+
+1.  确认信令通道已创建成功。
+2.  在发起方页面点击“start”按钮。
+3.  浏览器会请求摄像头和麦克风权限，请务必允许。
+
+如果一切配置正确，两台笔记本之间应该就能成功进行视频通话了。
